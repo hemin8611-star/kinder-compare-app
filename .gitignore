@@ -1,0 +1,7 @@
+# 대용량 원본 캐시 및 로컬 임시 파일 제외 (배포에는 data.js 만 필요)
+opendata_cache/
+capital_kindergartens_20261.json
+__pycache__/
+*.pyc
+.DS_Store
+.env
