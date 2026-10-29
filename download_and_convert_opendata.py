@@ -185,6 +185,11 @@ def normalize_establish_type(raw_type):
 
 def build_dataset():
     all_records = []
+    tuition_cache_path = os.path.join(CACHE_DIR, "tuition_20261.json")
+    tuition_map = {}
+    if os.path.exists(tuition_cache_path):
+        with open(tuition_cache_path, "r", encoding="utf-8") as f:
+            tuition_map = json.load(f)
 
     for scode, sname in REGIONS:
         tables = {}
@@ -360,26 +365,88 @@ def build_dataset():
             play_res = str(r22[15] or "합격").strip() if len(r22) > 15 else "합격"
             safety_ok = (air_res in ("적합", "실시", "-")) and (play_res in ("합격", "적합", "-"))
 
-            # 비용(원비) 안내 (유치원알리미 openData 일괄 다운로드 외 항목이므로 설립유형별 정부지원 기준 안내)
-            if is_public:
-                cost_obj = {
-                    "monthlyTotal": 0,
-                    "tuition": 0,
-                    "afterSchoolFee": 0,
-                    "specialActivityFee": 0,
-                    "mealFee": 0,
-                    "note": "국공립 유아학비·방과후·급식비 정부지원 (현장학습·특성화 실비 별도)",
-                }
+            # 유치원알리미 2026년 1차 실제 교육·보육 비용 공시 데이터(tuition_20261.json) 반영
+            kid = f"kg-{scode}-{i+1:04d}"
+            t_info = tuition_map.get(kid, {})
+            itt_id = t_info.get("ittId", "")
+            edu_d = t_info.get("edu", {})
+            after_d = t_info.get("after", {})
+            spec_d = t_info.get("special", {})
+
+            edu_tot = edu_d.get("total", [0, 0, 0])
+            edu_base = edu_d.get("baseSub", [0, 0, 0])
+            edu_opt = edu_d.get("optSub", [0, 0, 0])
+            edu_tui = edu_d.get("tuition", [0, 0, 0])
+            edu_meal = edu_d.get("meal", [0, 0, 0])
+            edu_snack = edu_d.get("snack", [0, 0, 0])
+
+            after_tot = after_d.get("total", [0, 0, 0])
+            after_base = after_d.get("baseSub", [0, 0, 0])
+            after_opt = after_d.get("optSub", [0, 0, 0])
+            after_tui = after_d.get("tuition", [0, 0, 0])
+            after_meal = after_d.get("meal", [0, 0, 0])
+            after_snack = after_d.get("snack", [0, 0, 0])
+
+            spec_tot = spec_d.get("total", [0, 0, 0])
+            spec_cnt = to_int(spec_d.get("count", 0))
+            spec_progs = [str(p).strip() for p in spec_d.get("programs", []) if str(p).strip()]
+
+            age_totals = [edu_tot[a] + after_tot[a] + spec_tot[a] for a in range(3)]
+            active_ages = [
+                a
+                for a, (cnt, cap, enr, tot) in enumerate(
+                    [
+                        (c3_cnt, c3_cap, c3_enr, age_totals[0]),
+                        (c4_cnt, c4_cap, c4_enr, age_totals[1]),
+                        (c5_cnt, c5_cap, c5_enr, age_totals[2]),
+                    ]
+                )
+                if cnt > 0 or cap > 0 or enr > 0 or tot > 0
+            ]
+            if not active_ages:
+                active_ages = [0, 1, 2]
+
+            avg_edu = round(sum(edu_tot[a] for a in active_ages) / len(active_ages))
+            avg_edu_base = round(sum(edu_base[a] for a in active_ages) / len(active_ages))
+            avg_edu_opt = round(sum(edu_opt[a] for a in active_ages) / len(active_ages))
+            avg_after = round(sum(after_tot[a] for a in active_ages) / len(active_ages))
+            avg_spec = round(sum(spec_tot[a] for a in active_ages) / len(active_ages))
+            avg_meal = round(
+                sum(edu_meal[a] + edu_snack[a] + after_meal[a] + after_snack[a] for a in active_ages)
+                / len(active_ages)
+            )
+            monthly_total = round(sum(age_totals[a] for a in active_ages) / len(active_ages))
+
+            if age_totals[0] == age_totals[1] == age_totals[2]:
+                age_note = f"만3·4·5세 동일 월 {age_totals[0]:,}원"
             else:
-                # 사립은 정부 유아학비(월 35만원+추가지원) 차감 후 평균 실부담 구간 표시 및 원문 안내
-                cost_obj = {
-                    "monthlyTotal": 180000,
-                    "tuition": 100000,
-                    "afterSchoolFee": 30000,
-                    "specialActivityFee": 50000,
-                    "mealFee": 0,
-                    "note": "정부 유아학비 지원 대상 (원별 정확한 납입금은 알리미 원문 공시 확인)",
-                }
+                age_note = f"만3세 {age_totals[0]:,}원 · 만4세 {age_totals[1]:,}원 · 만5세 {age_totals[2]:,}원"
+
+            if spec_progs:
+                note_str = f"2026년 1차 알리미 실공시 ({age_note} | 특성화: {', '.join(spec_progs[:4])})"
+            else:
+                note_str = f"2026년 1차 알리미 실공시 ({age_note} · 교육과정+방과후+특성화 합산)"
+
+            cost_obj = {
+                "monthlyTotal": monthly_total,
+                "tuition": avg_edu,
+                "eduBase": avg_edu_base,
+                "eduOpt": avg_edu_opt,
+                "afterSchoolFee": avg_after,
+                "specialActivityFee": avg_spec,
+                "mealFee": avg_meal,
+                "byAge": {
+                    "total": age_totals,
+                    "edu": edu_tot,
+                    "eduBase": edu_base,
+                    "eduOpt": edu_opt,
+                    "after": after_tot,
+                    "special": spec_tot,
+                },
+                "specialCount": spec_cnt,
+                "specialPrograms": spec_progs,
+                "note": note_str,
+            }
 
             # 공시 데이터 기반 실제 강점 태그 & 특색 배지 자동 생성
             special_programs = []
@@ -390,6 +457,9 @@ def build_dataset():
             elif is_public:
                 tags.append("병설")
 
+            if spec_progs:
+                for sp in spec_progs[:2]:
+                    special_programs.append(f"특성화:{sp}")
             if cs_cnt > 0:
                 special_programs.append(f"특수학급({cs_cnt}학급)")
                 tags.append("특수학급")
@@ -409,8 +479,17 @@ def build_dataset():
             if t_cert1 >= 3:
                 special_programs.append(f"1급정교사 {t_cert1}명")
 
+            alimi_url = (
+                f"https://e-childschoolinfo.moe.go.kr/kinderMt/kinderSummary.do?ittId={itt_id}"
+                if itt_id
+                else "https://e-childschoolinfo.moe.go.kr"
+            )
+            if not homepage or homepage == "-" or "e-childschoolinfo.moe.go.kr" in homepage:
+                homepage = alimi_url
+
             rec = {
-                "id": f"kg-{scode}-{i+1:04d}",
+                "id": kid,
+                "ittId": itt_id,
                 "name": k_name,
                 "establishType": est_type,
                 "eduOffice": str(r05[1] or "").strip(),

@@ -169,6 +169,11 @@ function formatWon(amount) {
   return `${amount.toLocaleString("ko-KR")}원`;
 }
 
+function formatExactWon(amount) {
+  if (!amount || amount === 0) return "0원";
+  return `${Number(amount).toLocaleString("ko-KR")}원`;
+}
+
 function escapeHtml(str) {
   return String(str ?? "")
     .replace(/&/g, "&amp;")
@@ -415,8 +420,8 @@ function renderKgCard(kg) {
       <!-- 4대 핵심 지표 -->
       <div class="kg-metrics-grid">
         <div class="metric-cell">
-          <span class="metric-label">유아학비·부담</span>
-          <strong class="metric-val highlight">${d.isPublic ? "국공립 무상" : "유아학비 지원"}</strong>
+          <span class="metric-label">월 학부모 부담</span>
+          <strong class="metric-val highlight">${formatWon(kg.cost.monthlyTotal)}</strong>
         </div>
         <div class="metric-cell">
           <span class="metric-label">교사 1명당</span>
@@ -772,11 +777,12 @@ function buildCompareHTML(isModal = false) {
             ${kgs.map((k) => `<td>${escapeHtml(k.sigungu)} <b>${escapeHtml(k.dong)}</b></td>`).join("")}
           </tr>
           <tr>
-            <th>월 실부담금</th>
+            <th>월 실부담금<br><small style="font-weight:400;">(알리미 실공시)</small></th>
             ${kgs
               .map((k) => {
                 const best = k.cost.monthlyTotal === minCost;
-                return `<td class="${best ? "best-cell" : ""}">${best ? "👑 " : ""}${formatWon(k.cost.monthlyTotal)}<br><small style="font-weight:400; color:var(--text-sub);">${escapeHtml(k.cost.note)}</small></td>`;
+                const ba = k.cost.byAge?.total || [k.cost.monthlyTotal, k.cost.monthlyTotal, k.cost.monthlyTotal];
+                return `<td class="${best ? "best-cell" : ""}">${best ? "👑 " : ""}<b>${formatExactWon(k.cost.monthlyTotal)}</b> (평균)<br><small style="font-weight:400; color:var(--text-sub);">만3세 ${formatExactWon(ba[0])}<br>만4세 ${formatExactWon(ba[1])}<br>만5세 ${formatExactWon(ba[2])}</small></td>`;
               })
               .join("")}
           </tr>
@@ -942,20 +948,88 @@ function openDetailModal(id) {
       </div>
     </div>
 
-    <!-- 비용 상세 -->
+    <!-- 비용 상세 (유치원알리미 2026년 1차 실제 공시 기준) -->
     <div class="detail-section">
       <h4 class="detail-sec-title">
-        <span>💸 월 학부모 실부담금 상세</span>
-        <span style="color: var(--primary);">${formatWon(kg.cost.monthlyTotal)} / 월</span>
+        <span>💸 월 학부모 실부담금 상세 (알리미 2026.1차)</span>
+        <span style="color: var(--primary);">평균 ${formatExactWon(kg.cost.monthlyTotal)} / 월</span>
       </h4>
-      <div class="kv-list">
-        <div class="kv-row"><span class="kv-key">기본 수업료 (학부모 부담분)</span><span class="kv-val">${formatWon(kg.cost.tuition)}</span></div>
-        <div class="kv-row"><span class="kv-key">방과후 과정비</span><span class="kv-val">${formatWon(kg.cost.afterSchoolFee)}</span></div>
-        <div class="kv-row"><span class="kv-key">특성화 활동비 · 현장학습비</span><span class="kv-val">${formatWon(kg.cost.specialActivityFee)}</span></div>
-        <div class="kv-row"><span class="kv-key">급식·간식비</span><span class="kv-val">${formatWon(kg.cost.mealFee)}</span></div>
-      </div>
-      <p style="font-size: 0.78rem; color: var(--text-sub); margin: 10px 0 0; background: var(--surface-sub); padding: 8px 10px; border-radius: 8px;">
-        💡 ${escapeHtml(kg.cost.note)}
+      ${(() => {
+        const ba = kg.cost.byAge;
+        if (!ba) {
+          return `
+            <div class="kv-list">
+              <div class="kv-row"><span class="kv-key">교육과정 비용 (월)</span><span class="kv-val">${formatExactWon(kg.cost.tuition)}</span></div>
+              <div class="kv-row"><span class="kv-key">방과후 과정 비용 (월)</span><span class="kv-val">${formatExactWon(kg.cost.afterSchoolFee)}</span></div>
+              <div class="kv-row"><span class="kv-key">특성화 활동비 (월)</span><span class="kv-val">${formatExactWon(kg.cost.specialActivityFee)}</span></div>
+            </div>
+          `;
+        }
+        const specProgs = kg.cost.specialPrograms || [];
+        return `
+          <div style="overflow-x: auto; margin-top: 6px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: right; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+              <thead>
+                <tr style="background: var(--surface-sub); color: var(--text); font-weight: 800; border-bottom: 1px solid var(--border);">
+                  <th style="padding: 8px 10px; text-align: left;">공시 항목 (단위: 원/월)</th>
+                  <th style="padding: 8px 8px;">만 3세</th>
+                  <th style="padding: 8px 8px;">만 4세</th>
+                  <th style="padding: 8px 10px;">만 5세</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="background: #eff6ff; font-weight: 800; color: var(--primary); border-bottom: 1px solid var(--border);">
+                  <td style="padding: 8px 10px; text-align: left;">총 월 학부모 부담금</td>
+                  <td style="padding: 8px 8px;">${formatExactWon(ba.total[0])}</td>
+                  <td style="padding: 8px 8px;">${formatExactWon(ba.total[1])}</td>
+                  <td style="padding: 8px 10px;">${formatExactWon(ba.total[2])}</td>
+                </tr>
+                <tr style="font-weight: 700; border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 7px 10px; text-align: left;">① 교육과정 합계(월)</td>
+                  <td style="padding: 7px 8px;">${formatExactWon(ba.edu[0])}</td>
+                  <td style="padding: 7px 8px;">${formatExactWon(ba.edu[1])}</td>
+                  <td style="padding: 7px 10px;">${formatExactWon(ba.edu[2])}</td>
+                </tr>
+                <tr style="color: var(--text-sub); font-size: 0.77rem; border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 5px 10px 5px 18px; text-align: left;">└ 기본경비 소계 (수업·급간식·교재)</td>
+                  <td style="padding: 5px 8px;">${formatExactWon(ba.eduBase[0])}</td>
+                  <td style="padding: 5px 8px;">${formatExactWon(ba.eduBase[1])}</td>
+                  <td style="padding: 5px 10px;">${formatExactWon(ba.eduBase[2])}</td>
+                </tr>
+                <tr style="color: var(--text-sub); font-size: 0.77rem; border-bottom: 1px solid var(--border);">
+                  <td style="padding: 5px 10px 5px 18px; text-align: left;">└ 선택경비 소계 (원복·차량·현장학습 등)</td>
+                  <td style="padding: 5px 8px;">${formatExactWon(ba.eduOpt[0])}</td>
+                  <td style="padding: 5px 8px;">${formatExactWon(ba.eduOpt[1])}</td>
+                  <td style="padding: 5px 10px;">${formatExactWon(ba.eduOpt[2])}</td>
+                </tr>
+                <tr style="font-weight: 700; border-bottom: 1px solid var(--border);">
+                  <td style="padding: 7px 10px; text-align: left;">② 방과후 과정 합계(월)</td>
+                  <td style="padding: 7px 8px;">${formatExactWon(ba.after[0])}</td>
+                  <td style="padding: 7px 8px;">${formatExactWon(ba.after[1])}</td>
+                  <td style="padding: 7px 10px;">${formatExactWon(ba.after[2])}</td>
+                </tr>
+                <tr style="font-weight: 700;">
+                  <td style="padding: 7px 10px; text-align: left;">③ 특성화 활동비 합계(월)</td>
+                  <td style="padding: 7px 8px;">${formatExactWon(ba.special[0])}</td>
+                  <td style="padding: 7px 8px;">${formatExactWon(ba.special[1])}</td>
+                  <td style="padding: 7px 10px;">${formatExactWon(ba.special[2])}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          ${
+            specProgs.length > 0
+              ? `<div style="margin-top: 8px; font-size: 0.8rem; color: var(--text);">
+                  🎨 <b>특성화 활동 운영 (${kg.cost.specialCount || specProgs.length}개):</b>
+                  ${specProgs.map((p) => `<span class="tag-badge" style="margin-left:4px;">${escapeHtml(p)}</span>`).join("")}
+                </div>`
+              : `<div style="margin-top: 8px; font-size: 0.78rem; color: var(--text-sub);">🎨 공시된 방과후 특성화 활동: 해당사항 없음 (또는 기본과정 내 자체 운영)</div>`
+          }
+        `;
+      })()}
+      <p style="font-size: 0.76rem; color: var(--text-sub); margin: 10px 0 0; background: var(--surface-sub); padding: 8px 10px; border-radius: 8px;">
+        💡 ${escapeHtml(kg.cost.note)}<br>
+        <span style="opacity: 0.85;">※ 유치원알리미 공시 기준 학부모 고지 금액(정부·지자체 지원금 제외)이며, 선택경비(입학·졸업앨범 등 연/분기 납부액의 월 환산분)가 포함되어 있습니다.</span>
       </p>
     </div>
 
@@ -998,7 +1072,7 @@ function openDetailModal(id) {
       </div>
       <div style="display: flex; gap: 8px; margin-top: 14px;">
         <a class="btn" href="tel:${escapeHtml(kg.phone)}" style="text-decoration: none;">📞 유치원 전화문의</a>
-        <a class="btn outline-primary" href="${escapeHtml(kg.homepage)}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">🔗 유치원알리미 원문</a>
+        <a class="btn outline-primary" href="${escapeHtml(kg.ittId ? `https://e-childschoolinfo.moe.go.kr/kinderMt/kinderSummary.do?ittId=${kg.ittId}` : kg.homepage)}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">🔗 유치원알리미 원문</a>
       </div>
     </div>
 
