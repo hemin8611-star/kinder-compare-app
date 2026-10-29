@@ -479,7 +479,7 @@ function renderCoupangCurationWidget(titleOverride) {
     <aside class="coupang-card" aria-label="등원 준비물 추천">
       <div class="cp-header">
         <span class="cp-badge">${escapeHtml(b.badge)}</span>
-        <span class="cp-ad-tag">쿠팡 파트너스 추천</span>
+        <span class="cp-ad-tag">이 배너는 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공 받습니다.</span>
       </div>
       <h4 class="cp-title">${escapeHtml(titleOverride || b.title)}</h4>
       <p class="cp-sub">${escapeHtml(b.subtitle)}</p>
@@ -508,7 +508,6 @@ function renderCoupangCurationWidget(titleOverride) {
           )
           .join("")}
       </div>
-      <p class="cp-disclaimer">${escapeHtml(COUPANG_CURATION.disclaimer)}</p>
     </aside>
   `;
 }
