@@ -16,14 +16,14 @@
           <span class="brand-logo">🏫</span>
           <span>
             <strong class="brand-title">유치원콕</strong>
-            <small class="brand-sub">서울·경기·인천 유치원 공시 비교</small>
+            <small class="brand-sub">전국 17개 시·도 유치원 공시 비교</small>
           </span>
         </button>
         <div class="header-actions">
           <button class="header-pill" id="header-fav-btn" onclick="switchTab('favorites')">
             ❤️ 찜 <span id="header-fav-count">0</span>
           </button>
-          <button class="header-pill active" id="header-cmp-btn" onclick="openCompareModal()">
+          <button class="header-pill active" id="header-cmp-btn" onclick="switchTab('compare')">
             ⚖️ 비교함 <span id="header-cmp-count">0</span>/4
           </button>
         </div>
@@ -34,9 +34,9 @@
     <main id="tab-explore" class="view-section active">
       <section class="hero-banner">
         <div>
-          <span class="hero-badge">2026년 1차 실공시 탑재 · 수도권 2,918곳</span>
+          <span class="hero-badge">2026년 1차 실공시 탑재 · 전국 7,152곳</span>
           <h1 class="hero-title">우리 아이 첫 유치원, 조건만 골라 비교하세요</h1>
-          <p class="hero-desc">서울(706)·경기(1,843)·인천(369) 유치원알리미 공시자료를 1초 만에 대조해 드려요</p>
+          <p class="hero-desc">전국 17개 시·도 유치원알리미 공시자료(원비·교사·돌봄·안전)를 1초 만에 대조해 드려요</p>
         </div>
         <div style="font-size: 2.2rem;">🐣</div>
       </section>
@@ -44,14 +44,11 @@
       <!-- 지역 & 다중 조건 필터 패널 -->
       <section class="filter-panel" aria-label="지역 및 조건 필터">
         <div class="filter-row-label">
-          <span>📍 1단계: 수도권 권역 및 동네 선택</span>
+          <span>📍 1단계: 전국 시·도 및 동네 선택</span>
           <button class="reset-btn" onclick="resetAllFilters()">필터 초기화</button>
         </div>
         <div class="chip-group" id="capital-quick-tabs" style="margin-bottom: 10px;">
-          <button class="filter-chip active" data-sido="전체" onclick="onSidoChange('전체')">수도권 전체</button>
-          <button class="filter-chip" data-sido="서울특별시" onclick="onSidoChange('서울특별시')">서울특별시</button>
-          <button class="filter-chip" data-sido="경기도" onclick="onSidoChange('경기도')">경기도</button>
-          <button class="filter-chip" data-sido="인천광역시" onclick="onSidoChange('인천광역시')">인천광역시</button>
+          <button class="filter-chip active" data-sido="전체" onclick="onSidoChange('전체')">전국 전체</button>
         </div>
         <div class="region-selectors">
           <select id="sel-sido" class="region-select" onchange="onSidoChange(this.value)" aria-label="시/도 선택"></select>
@@ -85,6 +82,20 @@
           <button class="filter-chip" data-filter="special" onclick="toggleCondition('special')">🤝 특수학급 운영</button>
         </div>
       </section>
+
+      <!-- 선택된 비교함 바 (화면 스크롤 시 고정되어 가리지 않도록 문서 흐름 내 배치) -->
+      <div id="floating-cmp-bar" class="floating-cmp-bar" style="display: none;">
+        <div class="floating-cmp-inner">
+          <div class="cmp-chips-row" id="floating-cmp-chips"></div>
+          <div class="cmp-bar-actions">
+            <span class="cmp-bar-status" id="floating-cmp-status">2곳 이상 담으면 나란히 비교할 수 있어요</span>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button class="btn cmp-clear-btn" style="min-height: 32px; padding: 4px 10px; font-size: 0.76rem; background: rgba(255,255,255,0.12); color: #fff; border: none;" onclick="clearCompareList()">비우기</button>
+              <button class="btn primary" style="min-height: 34px; padding: 6px 14px; font-size: 0.82rem;" onclick="switchTab('compare')">한눈에 비교하기 ▸</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- 결과 건수 & 정렬 -->
       <div class="list-toolbar">
@@ -124,20 +135,6 @@
       </p>
       <div id="guide-content"></div>
     </section>
-
-    <!-- 하단 플로팅 비교바 (1개 이상 담았을 때 노출) -->
-    <div id="floating-cmp-bar" class="floating-cmp-bar" style="display: none;">
-      <div class="floating-cmp-inner">
-        <div class="cmp-chips-row" id="floating-cmp-chips"></div>
-        <div class="cmp-bar-actions">
-          <span class="cmp-bar-status" id="floating-cmp-status">2곳 이상 담으면 나란히 비교할 수 있어요</span>
-          <div style="display: flex; gap: 6px;">
-            <button class="btn" style="min-height: 34px; padding: 4px 10px; font-size: 0.78rem; background: rgba(255,255,255,0.12); color: #fff; border: none;" onclick="clearCompareList()">비우기</button>
-            <button class="btn primary" style="min-height: 34px; padding: 6px 14px; font-size: 0.82rem;" onclick="openCompareModal()">한눈에 비교하기 ▸</button>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- 하단 네비게이션 탭바 -->
     <nav class="bottom-tabbar" aria-label="하단 메뉴">

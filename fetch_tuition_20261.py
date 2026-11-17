@@ -145,16 +145,31 @@ def parse_cost_html(html):
     return res
 
 
-def resolve_all_itt_ids(cap_k):
-    print("[1/2] 유치원 고유 식별코드(ittId) 매핑 중...")
+def resolve_all_itt_ids(cap_k, existing):
+    print("[1/2] 전국 유치원 고유 식별코드(ittId) 매핑 중...")
     url = "https://e-childschoolinfo.moe.go.kr/kinderMt/kinderLocalFind.do"
-    data = urllib.parse.urlencode(
-        {"institutionType": "01", "latitude": "37.5665", "longitude": "126.9780", "distance": "200"}
-    ).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded"}
-    )
-    local_list = json.loads(urllib.request.urlopen(req, context=ctx, timeout=25).read().decode("utf-8"))
+    centers = [
+        ("37.5665", "126.9780", "200"),
+        ("36.3504", "127.3845", "200"),
+        ("35.1796", "129.0756", "200"),
+        ("35.1595", "126.8526", "200"),
+        ("33.3800", "126.5500", "150"),
+    ]
+    local_list = []
+    seen_ids = set()
+    for lat, lng, dist in centers:
+        data = urllib.parse.urlencode(
+            {"institutionType": "01", "latitude": lat, "longitude": lng, "distance": dist}
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=data, headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded"}
+        )
+        part = json.loads(urllib.request.urlopen(req, context=ctx, timeout=25).read().decode("utf-8"))
+        for p in part:
+            pid = p.get("id")
+            if pid and pid not in seen_ids:
+                seen_ids.add(pid)
+                local_list.append(p)
 
     by_name_tel = {}
     by_name_addr = {}
@@ -170,6 +185,9 @@ def resolve_all_itt_ids(cap_k):
     id_map = {}
     for k in cap_k:
         kid = k["id"]
+        if kid in existing and existing[kid].get("ittId") and "edu" in existing[kid]:
+            id_map[kid] = existing[kid]["ittId"]
+            continue
         nm = k["name"].strip()
         tel = re.sub(r"[^0-9]", "", k["phone"] or "")
         addr = k["address"].strip()
@@ -179,28 +197,30 @@ def resolve_all_itt_ids(cap_k):
         if hit:
             id_map[kid] = hit["id"]
         else:
-            # Fallback to combineFindAutoComplete.do
-            ac_url = "https://e-childschoolinfo.moe.go.kr/kinderMt/combineFindAutoComplete.do"
-            ac_data = urllib.parse.urlencode(
-                {"organName": nm, "sidoCode": "99", "sggCode": "99", "roName": "99"}
-            ).encode("utf-8")
-            ac_req = urllib.request.Request(
-                ac_url,
-                data=ac_data,
-                headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded"},
-            )
-            ac_res = json.loads(urllib.request.urlopen(ac_req, context=ctx, timeout=15).read().decode("utf-8"))
-            cands = [x for x in ac_res if x.get("typeCode") == "01" and x.get("label") == nm]
-            chosen = None
-            for c in cands:
-                r_addr = (c.get("roadAddress") or "").strip()
-                if k["sido"] in r_addr and k["sigungu"].split()[0] in r_addr:
-                    chosen = c
-                    break
-            if not chosen and cands:
-                chosen = cands[0]
-            if chosen:
-                id_map[kid] = chosen["id"]
+            try:
+                ac_url = "https://e-childschoolinfo.moe.go.kr/kinderMt/combineFindAutoComplete.do"
+                ac_data = urllib.parse.urlencode(
+                    {"organName": nm, "sidoCode": "99", "sggCode": "99", "roName": "99"}
+                ).encode("utf-8")
+                ac_req = urllib.request.Request(
+                    ac_url,
+                    data=ac_data,
+                    headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded"},
+                )
+                ac_res = json.loads(urllib.request.urlopen(ac_req, context=ctx, timeout=15).read().decode("utf-8"))
+                cands = [x for x in ac_res if x.get("typeCode") == "01" and x.get("label") == nm]
+                chosen = None
+                for c in cands:
+                    r_addr = (c.get("roadAddress") or "").strip()
+                    if k["sigungu"].split()[0] in r_addr:
+                        chosen = c
+                        break
+                if not chosen and cands:
+                    chosen = cands[0]
+                if chosen:
+                    id_map[kid] = chosen["id"]
+            except Exception:
+                pass
 
     print(f" -> 매핑 완료: {len(id_map)} / {len(cap_k)}개")
     return id_map
@@ -238,7 +258,7 @@ def main():
         except Exception:
             existing = {}
 
-    id_map = resolve_all_itt_ids(cap_k)
+    id_map = resolve_all_itt_ids(cap_k, existing)
 
     todo = [(k["id"], id_map[k["id"]]) for k in cap_k if k["id"] in id_map and (k["id"] not in existing or "edu" not in existing[k["id"]])]
     print(f"[2/2] 교육·보육 비용 공시 수집 시작: 신규 {len(todo)}개 (기존 캐시 {len(existing)}개)")

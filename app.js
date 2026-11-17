@@ -182,34 +182,57 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
-/* ================= 지역 드롭다운 및 수도권 퀵탭 초기화 ================= */
+/* ================= 지역 드롭다운 및 전국 17개 시·도 퀵탭 초기화 ================= */
+const ALL_SIDOS = [
+  ["전체", "전국 전체"],
+  ["서울특별시", "서울"],
+  ["경기도", "경기"],
+  ["인천광역시", "인천"],
+  ["부산광역시", "부산"],
+  ["대구광역시", "대구"],
+  ["광주광역시", "광주"],
+  ["대전광역시", "대전"],
+  ["울산광역시", "울산"],
+  ["세종특별자치시", "세종"],
+  ["강원특별자치도", "강원"],
+  ["충청북도", "충북"],
+  ["충청남도", "충남"],
+  ["전북특별자치도", "전북"],
+  ["전라남도", "전남"],
+  ["경상북도", "경북"],
+  ["경상남도", "경남"],
+  ["제주특별자치도", "제주"]
+];
+
+const SIDO_COUNTS = {};
+KINDERGARTEN_DATA.forEach((k) => {
+  SIDO_COUNTS[k.sido] = (SIDO_COUNTS[k.sido] || 0) + 1;
+});
+
 function syncCapitalQuickTabs() {
   const tabsWrap = document.getElementById("capital-quick-tabs");
   if (!tabsWrap) return;
-  const labels = [
-    ["전체", "수도권 전체", KINDERGARTEN_DATA.length],
-    ["서울특별시", "서울", KINDERGARTEN_DATA.filter((k) => k.sido === "서울특별시").length],
-    ["경기도", "경기", KINDERGARTEN_DATA.filter((k) => k.sido === "경기도").length],
-    ["인천광역시", "인천", KINDERGARTEN_DATA.filter((k) => k.sido === "인천광역시").length]
-  ];
-  tabsWrap.innerHTML = labels
-    .map(
-      ([val, label, cnt]) => `
+  tabsWrap.innerHTML = ALL_SIDOS
+    .map(([val, label]) => {
+      const cnt = val === "전체" ? KINDERGARTEN_DATA.length : SIDO_COUNTS[val] || 0;
+      return `
       <button
         class="filter-chip ${state.sido === val ? "active" : ""}"
         data-sido="${escapeHtml(val)}"
         onclick="onSidoChange('${escapeHtml(val)}')"
-      >${escapeHtml(label)} <span style="opacity:0.8;font-weight:600;">(${cnt})</span></button>
-    `
-    )
+      >${escapeHtml(label)} <span style="opacity:0.8;font-weight:600;">(${cnt.toLocaleString("ko-KR")})</span></button>
+    `;
+    })
     .join("");
 }
 
 function initRegionSelectors() {
-  const sidos = ["전체", "서울특별시", "경기도", "인천광역시"];
   const sidoEl = document.getElementById("sel-sido");
-  sidoEl.innerHTML = sidos
-    .map((s) => `<option value="${escapeHtml(s)}" ${s === state.sido ? "selected" : ""}>${s === "전체" ? "수도권 시/도 전체" : escapeHtml(s)}</option>`)
+  sidoEl.innerHTML = ALL_SIDOS
+    .map(([s]) => {
+      const cnt = s === "전체" ? KINDERGARTEN_DATA.length : SIDO_COUNTS[s] || 0;
+      return `<option value="${escapeHtml(s)}" ${s === state.sido ? "selected" : ""}>${s === "전체" ? `전국 시/도 전체 (${cnt.toLocaleString("ko-KR")})` : `${escapeHtml(s)} (${cnt.toLocaleString("ko-KR")})`}</option>`;
+    })
     .join("");
   syncCapitalQuickTabs();
   updateSigunguSelector();
@@ -614,6 +637,14 @@ function clearCompareList() {
   showToast("비교함을 비웠어요");
 }
 
+function toggleCmpBarMinimize() {
+  const bar = document.getElementById("floating-cmp-bar");
+  const btn = document.getElementById("cmp-min-btn");
+  if (!bar) return;
+  const isMin = bar.classList.toggle("minimized");
+  if (btn) btn.textContent = isMin ? "펼치기 ▴" : "접기 ▾";
+}
+
 function updateBadgesAndBars() {
   const favCount = state.favorites.size;
   const cmpCount = state.compareList.length;
@@ -804,21 +835,43 @@ function buildCompareHTML(isModal = false) {
               .join("")}
           </tr>
           <tr>
-            <th>현원 / 정원</th>
+            <th>현원 / 정원<br><small style="font-weight:400;">(총 학급수)</small></th>
             ${kgs
-              .map(
-                (k) =>
-                  `<td>${k.enrolledTotal} / ${k.capacityTotal}명<br><small style="color:var(--text-sub);">충족률 ${k._derived.fillRate}%</small></td>`
-              )
+              .map((k) => {
+                const totCls =
+                  k.classCountTotal ||
+                  (k.classes.age3.count +
+                    k.classes.age4.count +
+                    k.classes.age5.count +
+                    (k.classes.mixed?.count || 0) +
+                    (k.classes.special?.count || 0));
+                const licCap = k.licensedCapacityTotal || k.capacityTotal;
+                return `<td><b>현원 ${k.enrolledTotal}명 / 정원 ${k.capacityTotal}명</b> (총 ${totCls}학급)<br><small style="color:var(--text-sub);">충족률 ${k._derived.fillRate}%${licCap !== k.capacityTotal ? ` · 인가총정원 ${licCap}명` : ""}</small></td>`;
+              })
               .join("")}
           </tr>
           <tr>
-            <th>연령별 정원</th>
+            <th>학급·연령별 현황</th>
             ${kgs
-              .map(
-                (k) =>
-                  `<td><small>만3세: ${k.classes.age3.capacity}명 (${k.classes.age3.count}반)<br>만4세: ${k.classes.age4.capacity}명 (${k.classes.age4.count}반)<br>만5세: ${k.classes.age5.capacity}명 (${k.classes.age5.count}반)</small></td>`
-              )
+              .map((k) => {
+                const rows = [];
+                if (k.classes.age3.count > 0 || k.classes.age3.capacity > 0) {
+                  rows.push(`만3세(${k.classes.age3.count}반): 현원 ${k.classes.age3.enrolled} / 정원 ${k.classes.age3.capacity}명`);
+                }
+                if (k.classes.age4.count > 0 || k.classes.age4.capacity > 0) {
+                  rows.push(`만4세(${k.classes.age4.count}반): 현원 ${k.classes.age4.enrolled} / 정원 ${k.classes.age4.capacity}명`);
+                }
+                if (k.classes.age5.count > 0 || k.classes.age5.capacity > 0) {
+                  rows.push(`만5세(${k.classes.age5.count}반): 현원 ${k.classes.age5.enrolled} / 정원 ${k.classes.age5.capacity}명`);
+                }
+                if (k.classes.mixed && (k.classes.mixed.count > 0 || k.classes.mixed.capacity > 0)) {
+                  rows.push(`<b>혼합반(${k.classes.mixed.count}반): 현원 ${k.classes.mixed.enrolled} / 정원 ${k.classes.mixed.capacity}명</b>`);
+                }
+                if (k.classes.special && (k.classes.special.count > 0 || k.classes.special.capacity > 0)) {
+                  rows.push(`특수학급(${k.classes.special.count}반): 현원 ${k.classes.special.enrolled} / 정원 ${k.classes.special.capacity}명`);
+                }
+                return `<td><small style="line-height:1.6;">${rows.length > 0 ? rows.join("<br>") : "공시 정보 확인"}</small></td>`;
+              })
               .join("")}
           </tr>
           <tr>
@@ -897,6 +950,7 @@ function openCompareModal() {
   }
   const backdrop = document.getElementById("modal-backdrop");
   const content = document.getElementById("modal-sheet-content");
+  content.classList.add("wide-sheet");
   content.innerHTML = buildCompareHTML(true);
   backdrop.classList.add("open");
 }
@@ -916,6 +970,7 @@ function openDetailModal(id) {
 
   const backdrop = document.getElementById("modal-backdrop");
   const content = document.getElementById("modal-sheet-content");
+  content.classList.remove("wide-sheet");
 
   content.innerHTML = `
     <div class="sheet-header">
@@ -1032,18 +1087,76 @@ function openDetailModal(id) {
       </p>
     </div>
 
-    <!-- 연령별 학급 및 원아 현황 -->
+    <!-- 연령별 학급 및 원아 현황 (혼합반·특수학급·인가총정원 포함) -->
     <div class="detail-section">
-      <h4 class="detail-sec-title">
-        <span>👧 연령별 학급 · 원아 현황</span>
-        <span style="font-size: 0.82rem; color: var(--text-sub);">총 ${kg.enrolledTotal} / ${kg.capacityTotal}명</span>
-      </h4>
-      <div class="kv-list">
-        <div class="kv-row"><span class="kv-key">만 3세반 (${kg.classes.age3.count}학급)</span><span class="kv-val">현원 ${kg.classes.age3.enrolled}명 / 정원 ${kg.classes.age3.capacity}명</span></div>
-        <div class="kv-row"><span class="kv-key">만 4세반 (${kg.classes.age4.count}학급)</span><span class="kv-val">현원 ${kg.classes.age4.enrolled}명 / 정원 ${kg.classes.age4.capacity}명</span></div>
-        <div class="kv-row"><span class="kv-key">만 5세반 (${kg.classes.age5.count}학급)</span><span class="kv-val">현원 ${kg.classes.age5.enrolled}명 / 정원 ${kg.classes.age5.capacity}명</span></div>
-        ${kg.classes.special.count > 0 ? `<div class="kv-row"><span class="kv-key">특수학급 (${kg.classes.special.count}학급)</span><span class="kv-val">현원 ${kg.classes.special.enrolled}명 / 정원 ${kg.classes.special.capacity}명</span></div>` : ""}
-      </div>
+      ${(() => {
+        const totCls =
+          kg.classCountTotal ||
+          (kg.classes.age3.count +
+            kg.classes.age4.count +
+            kg.classes.age5.count +
+            (kg.classes.mixed?.count || 0) +
+            (kg.classes.special?.count || 0));
+        const licCap = kg.licensedCapacityTotal || kg.capacityTotal;
+        const mCls = kg.classes.mixed || { count: 0, capacity: 0, enrolled: 0 };
+        const sCls = kg.classes.special || { count: 0, capacity: 0, enrolled: 0 };
+        return `
+          <h4 class="detail-sec-title">
+            <span>👧 학급편성 · 정원 · 현원 현황 (총 ${totCls}학급)</span>
+            <span style="font-size: 0.82rem; color: var(--primary); font-weight: 800;">현원 ${kg.enrolledTotal}명 / 편성정원 ${kg.capacityTotal}명</span>
+          </h4>
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: right; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+              <thead>
+                <tr style="background: var(--surface-sub); color: var(--text); font-weight: 800; border-bottom: 1px solid var(--border);">
+                  <th style="padding: 8px 10px; text-align: left;">학급 구분</th>
+                  <th style="padding: 8px 8px;">학급수</th>
+                  <th style="padding: 8px 8px;">편성 정원</th>
+                  <th style="padding: 8px 10px;">현재 원아수(현원)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 7px 10px; text-align: left; font-weight: 700;">만 3세반</td>
+                  <td style="padding: 7px 8px;">${kg.classes.age3.count}학급</td>
+                  <td style="padding: 7px 8px;">${kg.classes.age3.capacity}명</td>
+                  <td style="padding: 7px 10px; font-weight: 700;">${kg.classes.age3.enrolled}명</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 7px 10px; text-align: left; font-weight: 700;">만 4세반</td>
+                  <td style="padding: 7px 8px;">${kg.classes.age4.count}학급</td>
+                  <td style="padding: 7px 8px;">${kg.classes.age4.capacity}명</td>
+                  <td style="padding: 7px 10px; font-weight: 700;">${kg.classes.age4.enrolled}명</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 7px 10px; text-align: left; font-weight: 700;">만 5세반</td>
+                  <td style="padding: 7px 8px;">${kg.classes.age5.count}학급</td>
+                  <td style="padding: 7px 8px;">${kg.classes.age5.capacity}명</td>
+                  <td style="padding: 7px 10px; font-weight: 700;">${kg.classes.age5.enrolled}명</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f1f5f9; ${mCls.count > 0 ? "background: #fffbeb; font-weight: 800;" : ""}">
+                  <td style="padding: 7px 10px; text-align: left; font-weight: 700;">혼합반 (혼합연령)</td>
+                  <td style="padding: 7px 8px;">${mCls.count}학급</td>
+                  <td style="padding: 7px 8px;">${mCls.capacity}명</td>
+                  <td style="padding: 7px 10px; font-weight: 700;">${mCls.enrolled}명</td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border); ${sCls.count > 0 ? "background: #f0fdf4; font-weight: 800;" : ""}">
+                  <td style="padding: 7px 10px; text-align: left; font-weight: 700;">특수학급</td>
+                  <td style="padding: 7px 8px;">${sCls.count}학급</td>
+                  <td style="padding: 7px 8px;">${sCls.capacity}명</td>
+                  <td style="padding: 7px 10px; font-weight: 700;">${sCls.enrolled}명</td>
+                </tr>
+                <tr style="background: #eff6ff; font-weight: 800; color: var(--primary);">
+                  <td style="padding: 8px 10px; text-align: left;">합계 (인가총정원 ${licCap}명)</td>
+                  <td style="padding: 8px 8px;">총 ${totCls}학급</td>
+                  <td style="padding: 8px 8px;">${kg.capacityTotal}명</td>
+                  <td style="padding: 8px 10px;">${kg.enrolledTotal}명</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        `;
+      })()}
     </div>
 
     <!-- 교직원 및 돌봄/통학 환경 -->
@@ -1151,6 +1264,8 @@ function renderGuideTab() {
 /* ================= 하단 탭 전환 및 토스트 ================= */
 function switchTab(tabName) {
   state.activeTab = tabName;
+  const shell = document.querySelector(".app-shell");
+  if (shell) shell.classList.toggle("wide-mode", tabName === "compare");
   document.querySelectorAll(".view-section").forEach((sec) => {
     sec.classList.toggle("active", sec.id === `tab-${tabName}`);
   });
@@ -1179,6 +1294,21 @@ function showToast(msg) {
   }, 2200);
 }
 
+function syncStickyCompareTableHeaders() {
+  document.querySelectorAll(".cmp-table").forEach((table) => {
+    const thead = table.querySelector("thead");
+    if (!thead) return;
+    const rect = table.getBoundingClientRect();
+    const headHeight = thead.offsetHeight || 60;
+    const maxOffset = Math.max(0, rect.height - headHeight);
+    const offset = rect.top < 0 ? Math.min(-rect.top, maxOffset) : 0;
+    thead.querySelectorAll("th").forEach((th) => {
+      th.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
+      th.style.boxShadow = offset > 0 ? "0 3px 8px rgba(15, 23, 42, 0.08)" : "";
+    });
+  });
+}
+
 // 초기 실행
 document.addEventListener("DOMContentLoaded", () => {
   loadPersistedState();
@@ -1189,4 +1319,9 @@ document.addEventListener("DOMContentLoaded", () => {
   renderFavoritesTab();
   renderGuideTab();
   updateBadgesAndBars();
+  window.addEventListener("scroll", syncStickyCompareTableHeaders, { passive: true });
+  const backdrop = document.getElementById("modal-backdrop");
+  if (backdrop) {
+    backdrop.addEventListener("scroll", syncStickyCompareTableHeaders, { passive: true });
+  }
 });

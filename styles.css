@@ -47,24 +47,27 @@ html, body {
   word-break: keep-all;
 }
 
-/* 모바일 중심 640px 앱 프레임 */
+/* 모바일 중심 640px 앱 프레임 (비교분석 탭에서는 와이드 확장) */
 .app-shell {
-  max-width: 640px;
+  max-width: 680px;
   min-height: 100vh;
   margin: 0 auto;
   background: var(--bg);
   position: relative;
   padding-bottom: 150px;
   box-shadow: 0 0 40px rgba(15, 23, 42, 0.08);
+  transition: max-width 0.2s ease;
 }
 
-/* 상단 고정 헤더 */
+.app-shell.wide-mode {
+  max-width: 1040px;
+}
+
+/* 상단 헤더 (스크롤 시 화면을 가리지 않도록 고정 해제) */
 .app-header {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 30;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
+  background: #ffffff;
   border-bottom: 1px solid var(--border);
   padding: 12px 16px;
 }
@@ -656,16 +659,11 @@ html, body {
   text-align: center;
 }
 
-/* 하단 플로팅 비교바 */
+/* 선택된 비교함 바 (화면 스크롤 시 따라다니며 가리지 않도록 일반 영역 배치) */
 .floating-cmp-bar {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 68px;
+  position: relative;
   width: 100%;
-  max-width: 620px;
-  z-index: 35;
-  padding: 0 12px;
+  margin-bottom: 14px;
 }
 
 .floating-cmp-inner {
@@ -673,7 +671,7 @@ html, body {
   color: #ffffff;
   border-radius: 16px;
   padding: 12px 14px;
-  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.3);
+  box-shadow: var(--shadow-sm);
 }
 
 .cmp-chips-row {
@@ -710,7 +708,7 @@ html, body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .cmp-bar-status {
@@ -725,13 +723,17 @@ html, body {
   transform: translateX(-50%);
   bottom: 0;
   width: 100%;
-  max-width: 640px;
+  max-width: 680px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   z-index: 40;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   padding: 6px 0 calc(6px + env(safe-area-inset-bottom, 0px));
+}
+
+.app-shell.wide-mode .bottom-tabbar {
+  max-width: 1040px;
 }
 
 .tab-btn {
@@ -784,7 +786,7 @@ html, body {
   z-index: 60;
   display: none;
   overflow-y: auto;
-  padding-top: 32px;
+  padding: 24px 12px;
 }
 
 .modal-backdrop.open {
@@ -792,19 +794,22 @@ html, body {
 }
 
 .modal-sheet {
-  max-width: 640px;
-  min-height: calc(100vh - 32px);
+  max-width: 680px;
+  min-height: calc(100vh - 48px);
   margin: 0 auto;
   background: var(--bg);
-  border-radius: 22px 22px 0 0;
-  padding: 18px 16px 80px;
+  border-radius: 22px;
+  padding: 20px 20px 80px;
   position: relative;
+  transition: max-width 0.2s ease;
+}
+
+.modal-sheet.wide-sheet {
+  max-width: 1040px;
 }
 
 .sheet-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  position: relative;
   background: var(--bg);
   padding: 8px 0 12px;
   border-bottom: 1px solid var(--border);
@@ -887,11 +892,11 @@ html, body {
   border-radius: 999px;
 }
 
-/* Sticky 첫 열 비교 테이블 */
+/* 비교항목 테이블에서만 비교항목(좌측 열 & 상단 헤더) 고정 */
 .cmp-table-wrap {
   overflow-x: auto;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   margin-bottom: 16px;
@@ -901,48 +906,66 @@ html, body {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.84rem;
+  font-size: 0.88rem;
+  line-height: 1.55;
 }
 
 .cmp-table th,
 .cmp-table td {
-  padding: 11px 12px;
+  padding: 13px 14px;
   border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   vertical-align: middle;
   text-align: left;
-  min-width: 145px;
+  min-width: 150px;
+}
+
+.cmp-table th:last-child,
+.cmp-table td:last-child {
+  border-right: none;
+}
+
+.cmp-table tbody tr:nth-child(even) td {
+  background: #fafcff;
 }
 
 .cmp-table thead th {
-  background: #f8fafc;
+  position: relative;
+  z-index: 4;
+  background: #f1f5f9;
   font-weight: 800;
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   border-bottom: 2px solid var(--border-strong);
+  vertical-align: top;
 }
 
 .cmp-table tbody th {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 3;
   background: #f8fafc;
-  min-width: 96px;
-  width: 96px;
+  width: 124px;
+  min-width: 120px;
   font-weight: 800;
-  color: var(--text-sub);
-  border-right: 1px solid var(--border);
+  color: #334155;
+  white-space: nowrap;
+  border-right: 2px solid var(--border-strong);
 }
 
 .cmp-table thead th:first-child {
   position: sticky;
   left: 0;
-  z-index: 3;
-  min-width: 96px;
-  width: 96px;
-  border-right: 1px solid var(--border);
+  z-index: 6;
+  width: 124px;
+  min-width: 120px;
+  background: #e2e8f0;
+  color: #1e293b;
+  vertical-align: middle;
+  border-right: 2px solid var(--border-strong);
 }
 
 .cmp-table td.best-cell {
-  background: var(--green-soft);
+  background: var(--green-soft) !important;
   color: var(--green-text);
   font-weight: 800;
 }

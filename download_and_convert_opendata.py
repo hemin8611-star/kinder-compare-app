@@ -21,9 +21,15 @@ import urllib.parse
 import json
 import os
 import re
+import ssl
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 sys.stdout.reconfigure(encoding="utf-8")
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(BASE_DIR, "opendata_cache")
@@ -33,14 +39,29 @@ REGIONS = [
     ("11", "서울특별시"),
     ("41", "경기도"),
     ("28", "인천광역시"),
+    ("26", "부산광역시"),
+    ("27", "대구광역시"),
+    ("12", "전남광주통합특별시"),
+    ("30", "대전광역시"),
+    ("31", "울산광역시"),
+    ("36", "세종특별자치시"),
+    ("51", "강원특별자치도"),
+    ("43", "충청북도"),
+    ("44", "충청남도"),
+    ("52", "전북특별자치도"),
+    ("47", "경상북도"),
+    ("48", "경상남도"),
+    ("50", "제주특별자치도"),
 ]
 
 CODES = ["05", "06", "07", "041", "042", "10", "111", "14", "15", "19", "22"]
+CODES_20262 = ["05", "06", "07", "14", "15", "19", "22"]
 TIMING = "20261"
+TIMING_LATEST = "20262"
 
 
-def fetch_item(sido_code, sido_name, gongsi_code):
-    cache_file = os.path.join(CACHE_DIR, f"{TIMING}_{sido_code}_{gongsi_code}.json")
+def fetch_item(sido_code, sido_name, gongsi_code, timing=TIMING):
+    cache_file = os.path.join(CACHE_DIR, f"{timing}_{sido_code}_{gongsi_code}.json")
     if os.path.exists(cache_file) and os.path.getsize(cache_file) > 100:
         with open(cache_file, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -48,7 +69,7 @@ def fetch_item(sido_code, sido_name, gongsi_code):
     url = (
         f"https://e-childschoolinfo.moe.go.kr/download/getOpenData.do"
         f"?combineSidoCode={sido_code}&combineSidoName={enc_name}"
-        f"&timingListCode={TIMING}&gongsiListCode={gongsi_code}&ExcelCsv=3"
+        f"&timingListCode={timing}&gongsiListCode={gongsi_code}&ExcelCsv=3"
     )
     req = urllib.request.Request(
         url,
@@ -57,7 +78,7 @@ def fetch_item(sido_code, sido_name, gongsi_code):
             "Referer": "https://e-childschoolinfo.moe.go.kr/openData.do",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, context=ctx, timeout=45) as resp:
         raw = resp.read().decode("utf-8")
         data = json.loads(raw)
     with open(cache_file, "w", encoding="utf-8") as f:
@@ -125,10 +146,15 @@ def parse_address(sido_name, addr):
     addr = (addr or "").strip()
     tokens = addr.split()
     sigungu = "기타"
-    if len(tokens) >= 2:
+    start_dong_idx = 2
+    if sido_name == "세종특별자치시":
+        sigungu = "세종시"
+        start_dong_idx = 1
+    elif len(tokens) >= 2:
         t1 = tokens[1]
-        if sido_name == "경기도" and len(tokens) >= 3 and tokens[2].endswith("구") and len(tokens[2]) <= 4:
+        if len(tokens) >= 3 and t1.endswith("시") and tokens[2].endswith("구") and len(tokens[2]) <= 5:
             sigungu = f"{t1} {tokens[2]}"
+            start_dong_idx = 3
         else:
             sigungu = t1
 
@@ -147,7 +173,7 @@ def parse_address(sido_name, addr):
 
     # 2. 괄호 밖 토큰에서 읍/면/동 추출
     if not dong:
-        for tok in tokens[2:]:
+        for tok in tokens[start_dong_idx:]:
             clean_tok = re.sub(r"[(),]", "", tok)
             if re.search(r"(읍|면|동|가)$", clean_tok) and not clean_tok.endswith("로") and not clean_tok.endswith("길"):
                 dong = clean_tok
@@ -155,7 +181,7 @@ def parse_address(sido_name, addr):
 
     # 3. 도로명 주소만 있는 경우 메인 도로명(OO로 / OO대로 / OO길)으로 정규화
     if not dong:
-        for tok in tokens[2:]:
+        for tok in tokens[start_dong_idx:]:
             clean_tok = re.sub(r"[(),]", "", tok)
             m_road = re.match(r"^([가-힣0-9]+?(?:대로|로))(?:\d+.*)?$", clean_tok)
             if m_road:
@@ -191,42 +217,74 @@ def build_dataset():
         with open(tuition_cache_path, "r", encoding="utf-8") as f:
             tuition_map = json.load(f)
 
-    for scode, sname in REGIONS:
-        tables = {}
-        for gcode in CODES:
-            tables[gcode] = fetch_item(scode, sname, gcode)["body"]
+    # 병렬 프리페치로 전국 16개 권역 x (2026년 2차 최신공시 7개 항목 + 2026년 1차 연1회 공시항목) 고속 다운로드
+    tasks_1 = [(scode, sname, gcode, TIMING) for scode, sname in REGIONS for gcode in CODES]
+    tasks_2 = [(scode, sname, gcode, TIMING_LATEST) for scode, sname in REGIONS for gcode in CODES_20262]
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        list(ex.map(lambda t: fetch_item(*t), tasks_1 + tasks_2))
 
-        # 보조 테이블을 (유치원명, 주소) 키로 인덱싱 (1:1 순서 일치 + 안전 매칭)
+    for scode, sname in REGIONS:
+        tables_1 = {}
+        for gcode in CODES:
+            tables_1[gcode] = fetch_item(scode, sname, gcode, TIMING)["body"]
+
+        tables_2 = {}
+        for gcode in CODES_20262:
+            tables_2[gcode] = fetch_item(scode, sname, gcode, TIMING_LATEST)["body"]
+
+        # 2026년 1차(20261) 기준 (유치원명, 주소) -> (기존 kid, 05행) 매핑 (원비 캐시 및 운영시간 연동용)
+        map_05_1 = {}
+        for old_i, r1 in enumerate(tables_1["05"]):
+            k1 = (str(r1[2]).strip(), str(r1[8]).strip())
+            map_05_1[k1] = (f"kg-{scode}-{old_i+1:04d}", r1)
+
+        # 보조 테이블을 (유치원명, 주소) 키로 인덱싱 (20262 최신본 우선 적용, 연1회 항목은 20261 적용)
         idx_tables = {}
         for gcode in CODES[1:]:
+            src_rows = tables_2[gcode] if (gcode in tables_2 and len(tables_2[gcode]) > 0) else tables_1[gcode]
             mapping = {}
-            for row in tables[gcode]:
+            for row in src_rows:
                 key = (str(row[2]).strip(), str(row[4]).strip())
                 mapping[key] = row
             idx_tables[gcode] = mapping
 
-        rows_05 = tables["05"]
+        rows_05 = tables_2["05"] if len(tables_2.get("05", [])) > 0 else tables_1["05"]
+        is_05_latest = len(tables_2.get("05", [])) > 0
+
         for i, r05 in enumerate(rows_05):
             k_name = str(r05[2]).strip()
             k_addr = str(r05[8]).strip()
             key = (k_name, k_addr)
 
-            r06 = idx_tables["06"].get(key) or (tables["06"][i] if i < len(tables["06"]) else [])
-            r07 = idx_tables["07"].get(key) or (tables["07"][i] if i < len(tables["07"]) else [])
-            r041 = idx_tables["041"].get(key) or (tables["041"][i] if i < len(tables["041"]) else [])
-            r042 = idx_tables["042"].get(key) or (tables["042"][i] if i < len(tables["042"]) else [])
-            r10 = idx_tables["10"].get(key) or (tables["10"][i] if i < len(tables["10"]) else [])
-            r111 = idx_tables["111"].get(key) or (tables["111"][i] if i < len(tables["111"]) else [])
-            r14 = idx_tables["14"].get(key) or (tables["14"][i] if i < len(tables["14"]) else [])
-            r15 = idx_tables["15"].get(key) or (tables["15"][i] if i < len(tables["15"]) else [])
-            r19 = idx_tables["19"].get(key) or (tables["19"][i] if i < len(tables["19"]) else [])
-            r22 = idx_tables["22"].get(key) or (tables["22"][i] if i < len(tables["22"]) else [])
+            old_kid, r05_1 = map_05_1.get(key, (f"kg-{scode}-{i+1:04d}", []))
+
+            r06 = idx_tables["06"].get(key) or []
+            r07 = idx_tables["07"].get(key) or []
+            r041 = idx_tables["041"].get(key) or []
+            r042 = idx_tables["042"].get(key) or []
+            r10 = idx_tables["10"].get(key) or []
+            r111 = idx_tables["111"].get(key) or []
+            r14 = idx_tables["14"].get(key) or []
+            r15 = idx_tables["15"].get(key) or []
+            r19 = idx_tables["19"].get(key) or []
+            r22 = idx_tables["22"].get(key) or []
 
             est_type = normalize_establish_type(r05[3])
             is_public = est_type.startswith("국공립")
             is_danseol = "단설" in est_type
 
-            sigungu, dong = parse_address(sname, k_addr)
+            resolved_sido = sname
+            if scode == "12":
+                addr_toks = k_addr.split()
+                t1_check = addr_toks[1] if len(addr_toks) >= 2 else ""
+                if t1_check in ("동구", "서구", "남구", "북구", "광산구"):
+                    resolved_sido = "광주광역시"
+                    k_addr = re.sub(r"^전남광주통합특별시", "광주광역시", k_addr)
+                else:
+                    resolved_sido = "전라남도"
+                    k_addr = re.sub(r"^전남광주통합특별시", "전라남도", k_addr)
+
+            sigungu, dong = parse_address(resolved_sido, k_addr)
             open_date = str(r05[7] or r05[6] or "20150301").strip()
             est_year = to_int(open_date[:4], 2015)
             if est_year < 1900 or est_year > 2026:
@@ -237,35 +295,39 @@ def build_dataset():
             if not homepage or homepage == "-":
                 homepage = "https://e-childschoolinfo.moe.go.kr"
 
-            # 학급 및 원아 수 (05)
+            # 학급 및 원아 수 (05: 20262는 운영시간 컬럼이 빠져 인덱스 12부터 시작, 20261은 인덱스 13부터 시작)
+            off = 12 if (is_05_latest and len(r05) == 30) else 13
             c3_cnt, c4_cnt, c5_cnt, cm_cnt, cs_cnt = (
-                to_int(r05[13]),
-                to_int(r05[14]),
-                to_int(r05[15]),
-                to_int(r05[16]),
-                to_int(r05[17]),
+                to_int(r05[off]),
+                to_int(r05[off + 1]),
+                to_int(r05[off + 2]),
+                to_int(r05[off + 3]),
+                to_int(r05[off + 4]),
             )
-            cap_total = to_int(r05[18])
+            licensed_cap_total = to_int(r05[off + 5])
             c3_cap, c4_cap, c5_cap, cm_cap, cs_cap = (
-                to_int(r05[19]),
-                to_int(r05[20]),
-                to_int(r05[21]),
-                to_int(r05[22]),
-                to_int(r05[23]),
+                to_int(r05[off + 6]),
+                to_int(r05[off + 7]),
+                to_int(r05[off + 8]),
+                to_int(r05[off + 9]),
+                to_int(r05[off + 10]),
             )
             c3_enr, c4_enr, c5_enr, cm_enr, cs_enr = (
-                to_int(r05[24]),
-                to_int(r05[25]),
-                to_int(r05[26]),
-                to_int(r05[27]),
-                to_int(r05[28]),
+                to_int(r05[off + 11]),
+                to_int(r05[off + 12]),
+                to_int(r05[off + 13]),
+                to_int(r05[off + 14]),
+                to_int(r05[off + 15]),
             )
+            class_cnt_total = c3_cnt + c4_cnt + c5_cnt + cm_cnt + cs_cnt
+            class_cap_total = c3_cap + c4_cap + c5_cap + cm_cap + cs_cap
             enr_total = c3_enr + c4_enr + c5_enr + cm_enr + cs_enr
-            if cap_total <= 0:
-                cap_total = max(c3_cap + c4_cap + c5_cap + cm_cap + cs_cap, enr_total, 1)
+            cap_total = class_cap_total if class_cap_total > 0 else max(licensed_cap_total, enr_total, 1)
+            if licensed_cap_total <= 0:
+                licensed_cap_total = cap_total
 
-            lat = to_float(r05[29], 0.0)
-            lng = to_float(r05[30], 0.0)
+            lat = to_float(r05[off + 16], 0.0)
+            lng = to_float(r05[off + 17], 0.0)
 
             # 교직원 현황 (06) & 근속연수 (07)
             # 06: 5원장, 6원감, 7수석, 8보직, 9일반, 10특수, 11보건, 12영양, 13기간제/강사, 14직원, 15수석자격, 16정교사1급, 17정교사2급
@@ -300,7 +362,8 @@ def build_dataset():
                 tenure_total = max(regular_teachers, 1)
 
             # 운영시간 및 방과후 과정 (05, 111, 10)
-            op_st, op_et, op_eh = parse_operating_range(r05[12])
+            op_raw = r05_1[12] if (is_05_latest and len(r05_1) > 12) else (r05[12] if len(r05) > 30 else "")
+            op_st, op_et, op_eh = parse_operating_range(op_raw)
             af_st, _ = parse_hm(r111[5]) if len(r111) > 5 else ("", 0.0)
             af_et, af_eh = parse_hm(r111[6]) if len(r111) > 6 else ("", 0.0)
 
@@ -312,11 +375,13 @@ def build_dataset():
             af_enrolled = to_int(r111[12]) if len(r111) > 12 else 0
             af_staff = to_int(r111[18]) if len(r111) > 18 else 0
 
-            # 수업일수 (10): 5(만3세), 6(만4세), 7(만5세), 10(방과후과정수업일수)
+            # 수업일수 (10): 5(만3세), 6(만4세), 7(만5세), 8(혼합연령), 9(특수학급), 10(방과후과정수업일수)
             edu_days = max(
                 to_int(r10[5]) if len(r10) > 5 else 0,
                 to_int(r10[6]) if len(r10) > 6 else 0,
                 to_int(r10[7]) if len(r10) > 7 else 0,
+                to_int(r10[8]) if len(r10) > 8 else 0,
+                to_int(r10[9]) if len(r10) > 9 else 0,
                 180,
             )
             af_days = to_int(r10[10]) if len(r10) > 10 else 0
@@ -365,9 +430,9 @@ def build_dataset():
             play_res = str(r22[15] or "합격").strip() if len(r22) > 15 else "합격"
             safety_ok = (air_res in ("적합", "실시", "-")) and (play_res in ("합격", "적합", "-"))
 
-            # 유치원알리미 2026년 1차 실제 교육·보육 비용 공시 데이터(tuition_20261.json) 반영
+            # 유치원알리미 실제 교육·보육 비용 공시 데이터(tuition_20261.json) 반영
             kid = f"kg-{scode}-{i+1:04d}"
-            t_info = tuition_map.get(kid, {})
+            t_info = tuition_map.get(old_kid, {}) or tuition_map.get(kid, {})
             itt_id = t_info.get("ittId", "")
             edu_d = t_info.get("edu", {})
             after_d = t_info.get("after", {})
@@ -493,7 +558,7 @@ def build_dataset():
                 "name": k_name,
                 "establishType": est_type,
                 "eduOffice": str(r05[1] or "").strip(),
-                "sido": sname,
+                "sido": resolved_sido,
                 "sigungu": sigungu,
                 "dong": dong,
                 "address": k_addr,
@@ -509,6 +574,8 @@ def build_dataset():
                     "mixed": {"count": cm_cnt, "capacity": cm_cap, "enrolled": cm_enr},
                     "special": {"count": cs_cnt, "capacity": cs_cap, "enrolled": cs_enr},
                 },
+                "classCountTotal": class_cnt_total,
+                "licensedCapacityTotal": licensed_cap_total,
                 "capacityTotal": cap_total,
                 "enrolledTotal": enr_total,
                 "teachers": {
