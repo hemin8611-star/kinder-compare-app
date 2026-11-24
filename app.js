@@ -498,13 +498,17 @@ function normalizeCoupangUrl(rawUrl) {
 
 function renderCoupangCurationWidget(titleOverride) {
   const b = COUPANG_CURATION.inFeedBanner;
+  const rawTitle = titleOverride || b.title;
+  const displayTitle = rawTitle.startsWith("[광고]") ? rawTitle : `[광고] ${rawTitle}`;
   return `
     <aside class="coupang-card" aria-label="등원 준비물 추천">
+      <div class="cp-disclosure-top">
+        * 이 게시물은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
+      </div>
       <div class="cp-header">
         <span class="cp-badge">${escapeHtml(b.badge)}</span>
-        <span class="cp-ad-tag">이 배너는 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공 받습니다.</span>
       </div>
-      <h4 class="cp-title">${escapeHtml(titleOverride || b.title)}</h4>
+      <h4 class="cp-title">${escapeHtml(displayTitle)}</h4>
       <p class="cp-sub">${escapeHtml(b.subtitle)}</p>
       <div class="cp-items-grid">
         ${COUPANG_CURATION.items
